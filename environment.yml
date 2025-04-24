@@ -1,0 +1,14 @@
+name: pdf-env
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - PyMuPDF==1.23.7
+      - numpy==2.2.5
+      - opencv-python==4.11.0.86
+      - pdf2image==1.17.0
+      - pytesseract==0.3.13
+      - tqdm==4.66.5
