@@ -9,33 +9,32 @@ from tqdm import tqdm  # Visual progress bar for loops
 import shutil
 import re
 
-# Função para validar diretórios informados pelo usuário
+# Function to validate directories entered by the user
 def get_valid_directory(prompt):
     while True:
         directory = input(prompt)
-        if os.path.isdir(directory):  # Verifica se é um diretório válido
+        if os.path.isdir(directory):
             return directory
         else:
-            print(f"O diretório {directory} não existe. Tente novamente.")
+            print(f"The directory {directory} does not exist. Please try again.")
 
-# === Solicitação de diretórios ao usuário ===
-pdf_directory = get_valid_directory("Informe o diretório onde estão os PDFs: ")  # Root directory containing PDF files
-report_path_json = os.path.join(pdf_directory, "pdf_anomalies_report.json")  # Output path for anomaly report
-suspect_destination = os.path.join(pdf_directory, "Suspicious_PDFs")  # Folder to isolate suspicious PDFs
+# === Ask user for the root PDF directory ===
+pdf_directory = get_valid_directory("Enter the directory containing the PDFs: ")
+report_path_json = os.path.join(pdf_directory, "pdf_anomalies_report.json")
+suspect_destination = os.path.join(pdf_directory, "Suspicious_PDFs")
 
 # === Step 1: PDF Classification and Anomaly Detection ===
 
 def classify_pdf_by_text(pdf_path):
     """
-    Classifies a PDF by comparing its embedded text with OCR output.
-    Detects fraudulent or tampered documents where visual text doesn't match stored content.
+    Classifies a PDF by comparing its embedded text with the OCR output.
+    Detects tampered or scanned documents where visual content diverges from actual embedded text.
     """
     try:
         with fitz.open(pdf_path) as doc:
-            embedded_text = doc[0].get_text()  # Extract visible embedded text from page 1
+            embedded_text = doc[0].get_text()
 
         if len(embedded_text.strip()) < 50:
-            # If the embedded text is short, likely image-based or suspicious
             pages = convert_from_path(pdf_path, dpi=300, first_page=1, last_page=1)
             image = np.array(pages[0])
             image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -44,16 +43,16 @@ def classify_pdf_by_text(pdf_path):
             if len(ocr_text.strip()) > 100:
                 return "Image only (possibly scanned or edited)"
             else:
-                return "Inconsistent text between OCR and embedded text"
+                return "Inconsistent OCR vs embedded text"
         else:
-            return "Consistent text (OK)"
+            return "Consistent embedded text"
     except Exception as e:
-        return f"Error processing: {e}"
+        return f"Processing error: {e}"
 
 def analyze_pdfs_in_directory():
     """
-    Scans all PDFs within the root directory, classifies them,
-    and logs the result in a structured anomaly report.
+    Scans all PDFs in the directory and classifies them based on text consistency.
+    Logs results to a structured JSON report.
     """
     anomaly_report = []
     for root, _, files in tqdm(os.walk(pdf_directory), desc="Analyzing PDFs"):
@@ -67,10 +66,10 @@ def analyze_pdfs_in_directory():
                 })
     return anomaly_report
 
-# Execute the classification step
+# Run classification
 anomaly_report = analyze_pdfs_in_directory()
 
-# Save classification results to a JSON report for auditing or later review
+# Save classification results to JSON
 with open(report_path_json, 'w', encoding='utf-8') as json_file:
     json.dump(anomaly_report, json_file, ensure_ascii=False, indent=4)
 
@@ -79,23 +78,22 @@ os.makedirs(suspect_destination, exist_ok=True)
 
 def filter_suspects(anomaly_report):
     """
-    Filters suspicious PDFs based on classification criteria.
+    Returns a list of PDFs flagged as suspicious.
     """
     return [
         row for row in anomaly_report
         if row["text_status"] in [
             "Image only (possibly scanned or edited)",
-            "Inconsistent text between OCR and embedded text"
+            "Inconsistent OCR vs embedded text"
         ]
     ]
 
-# Filter suspicious files based on classification
+# Identify suspicious files
 suspects = filter_suspects(anomaly_report)
 
-# Copy suspicious PDFs to an isolated folder for further manual or automated review
 def copy_suspect_pdfs(suspects):
     """
-    Copies suspicious PDFs to an isolated directory for further review.
+    Copies suspicious PDFs to a dedicated folder.
     """
     for suspect in suspects:
         source = os.path.join(pdf_directory, suspect["file"])
@@ -113,39 +111,39 @@ print(f"{len(suspects)} suspicious files were copied to {suspect_destination}")
 
 def sanitize_path(path):
     """
-    Removes or replaces illegal path characters.
-    Useful for categorizing files into folders by status safely.
+    Removes or replaces illegal characters for safe path creation.
     """
     return re.sub(r'[<>:"/\\|?*\n\r]', '_', path)
 
-def organize_files_by_status(anomaly_report, arquivo_map):
+def organize_files_by_status(anomaly_report, file_map):
     """
-    Organizes PDFs by their classification status and copies them to corresponding folders.
+    Sorts PDF files into folders named after their classification.
     """
     for item in tqdm(anomaly_report, desc="Organizing"):
         file_name = item.get("file")
         status = item.get("text_status", "unknown").strip().replace(" ", "_")
         status = sanitize_path(status)
 
-        if file_name in arquivo_map:
-            origem = arquivo_map[file_name]
-            destino_dir = os.path.join(pdf_directory, status)
-            os.makedirs(destino_dir, exist_ok=True)
-            destino_arquivo = os.path.join(destino_dir, file_name)
+        if file_name in file_map:
+            source = file_map[file_name]
+            target_dir = os.path.join(pdf_directory, status)
+            os.makedirs(target_dir, exist_ok=True)
+            target_path = os.path.join(target_dir, file_name)
             try:
-                shutil.copy2(origem, destino_arquivo)
+                shutil.copy2(source, target_path)
             except Exception as e:
-                print(f"Failed to copy {origem} → {destino_arquivo}: {e}")
+                print(f"Failed to copy {source} → {target_path}: {e}")
         else:
             print(f"File not found: {file_name}")
 
-# Create a map of existing files in the directory
-arquivo_map = {}
+# Build a map of all files in the directory
+file_map = {}
 for root, _, files in os.walk(pdf_directory):
     for file in files:
-        arquivo_map[file] = os.path.join(root, file)
+        file_map[file] = os.path.join(root, file)
 
-# Organize the files by their classification status
-organize_files_by_status(anomaly_report, arquivo_map)
+# Organize files by classification status
+organize_files_by_status(anomaly_report, file_map)
+
 
 print("Finished.")
